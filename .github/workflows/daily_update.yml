@@ -25,10 +25,13 @@ jobs:
         pip install -r requirements.txt
 
     - name: Create credentials file
-      # Secrets에 저장된 JSON 내용을 파일로 생성
+      env:
+        GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
       run: |
-        echo "${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}" > credentials.json
-      shell: bash
+        import os
+        with open("credentials.json", "w") as f:
+            f.write(os.environ['GOOGLE_SHEETS_CREDENTIALS'])
+      shell: python
 
     - name: Run Pipeline
       env:
