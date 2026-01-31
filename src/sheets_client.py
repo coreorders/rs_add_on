@@ -131,9 +131,16 @@ class SheetsClient:
         
         columns = [
             'Ticker', 'Last_Updated',
+            # Revenue Q1~Q8
             'Q1_Revenue', 'Q2_Revenue', 'Q3_Revenue', 'Q4_Revenue',
+            'Q5_Revenue', 'Q6_Revenue', 'Q7_Revenue', 'Q8_Revenue',
+            # EPS Q1~Q8
             'Q1_EPS', 'Q2_EPS', 'Q3_EPS', 'Q4_EPS',
-            'Revenue_Growth', 'EPS_Growth', 'Error_Log'
+            'Q5_EPS', 'Q6_EPS', 'Q7_EPS', 'Q8_EPS',
+            # YoY Growth (Q1~Q4)
+            'Q1_Rev_YoY', 'Q2_Rev_YoY', 'Q3_Rev_YoY', 'Q4_Rev_YoY',
+            'Q1_EPS_YoY', 'Q2_EPS_YoY', 'Q3_EPS_YoY', 'Q4_EPS_YoY',
+            'Error_Log'
         ]
         
         # 필요한 컬럼만 선택 및 순서 보장 (없는 컬럼은 추가)

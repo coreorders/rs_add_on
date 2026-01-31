@@ -29,25 +29,29 @@ class YFinanceClient:
             sorted_cols = sorted(qf.columns, reverse=True)
             qf = qf[sorted_cols]
             
-            # 최근 4분기 확보 (미래 예측치가 포함될 수도 있으니 주의. yfinance는 보통 확정치만 줌)
-            recent_cols = sorted_cols[:4]
+            # 최근 8분기 확보 (YoY 계산을 위해 최소 5분기, 최대 8분기 필요)
+            recent_cols = sorted_cols[:8]
             
-            result = {
-                'Q1_Revenue': 0, 'Q2_Revenue': 0, 'Q3_Revenue': 0, 'Q4_Revenue': 0,
-                'Q1_EPS': 0.0, 'Q2_EPS': 0.0, 'Q3_EPS': 0.0, 'Q4_EPS': 0.0,
-                'Revenue_Growth': 0.0,
-                'EPS_Growth': 0.0
-            }
+            # 결과 딕셔너리 초기화 (Revenue, EPS 1~8)
+            result = {}
+            for i in range(1, 9):
+                result[f'Q{i}_Revenue'] = 0
+                result[f'Q{i}_EPS'] = 0.0
             
+            # YoY 성장률 초기화 (1~4)
+            for i in range(1, 5):
+                result[f'Q{i}_Rev_YoY'] = 0.0
+                result[f'Q{i}_EPS_YoY'] = 0.0
+
+            # 데이터 채우기
             for i, date_col in enumerate(recent_cols):
-                idx = i + 1
-                # 값 가져오기 (없으면 0 처리)
+                idx = i + 1 # 1-based index (Q1 being most recent)
+                
                 # Revenue
                 try:
                     rev = qf.loc['Total Revenue', date_col]
                     if pd.isna(rev): rev = 0
                 except KeyError:
-                    # Total Revenue가 없으면 Operating Revenue 시도
                     try:
                         rev = qf.loc['Operating Revenue', date_col]
                         if pd.isna(rev): rev = 0
@@ -68,18 +72,25 @@ class YFinanceClient:
                 result[f'Q{idx}_Revenue'] = float(rev)
                 result[f'Q{idx}_EPS'] = float(eps)
 
-            # 증감률 계산 (Q1 vs Q2 - 즉 최근분기 vs 직전분기 QoQ)
-            # yfinance 데이터가 충분히(최소 2개) 있는지 확인
-            if len(recent_cols) >= 2:
-                rev_q1 = result['Q1_Revenue']
-                rev_q2 = result['Q2_Revenue']
-                if rev_q2 != 0:
-                    result['Revenue_Growth'] = (rev_q1 - rev_q2) / abs(rev_q2)
+            # YoY 성장률 계산 (Q1 vs Q5, Q2 vs Q6, ...)
+            # 데이터가 충분한지 확인해가며 계산
+            for i in range(1, 5):
+                curr_idx = i      # Q1, Q2, Q3, Q4
+                prev_idx = i + 4  # Q5, Q6, Q7, Q8 (1년 전)
                 
-                eps_q1 = result['Q1_EPS']
-                eps_q2 = result['Q2_EPS']
-                if eps_q2 != 0:
-                    result['EPS_Growth'] = (eps_q1 - eps_q2) / abs(eps_q2)
+                # 전년 동기 데이터가 존재하는지 확인 (fetched length check)
+                if len(recent_cols) >= prev_idx:
+                    # Revenue YoY
+                    curr_rev = result[f'Q{curr_idx}_Revenue']
+                    prev_rev = result[f'Q{prev_idx}_Revenue']
+                    if prev_rev != 0:
+                        result[f'Q{curr_idx}_Rev_YoY'] = (curr_rev - prev_rev) / abs(prev_rev)
+                    
+                    # EPS YoY
+                    curr_eps = result[f'Q{curr_idx}_EPS']
+                    prev_eps = result[f'Q{prev_idx}_EPS']
+                    if prev_eps != 0:
+                        result[f'Q{curr_idx}_EPS_YoY'] = (curr_eps - prev_eps) / abs(prev_eps)
 
             return result
 
