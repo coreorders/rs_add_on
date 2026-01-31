@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def get_target_tickers(all_tickers, master_df, limit=200):
+def get_target_tickers(all_tickers, master_df, limit=50):
     """
     업데이트 대상 티커를 선정합니다.
     1순위: Master Data에 없는 신규 티커
@@ -68,7 +68,7 @@ def main():
         master_df = sheets_client.get_master_data()
         logger.info(f"Loaded {len(master_df)} existing records.")
         
-        targets = get_target_tickers(all_tickers, master_df, limit=200)
+        targets = get_target_tickers(all_tickers, master_df, limit=50)
         logger.info(f"Selected {len(targets)} tickers for update.")
         
         if not targets:
