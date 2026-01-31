@@ -57,105 +57,121 @@ class SheetsClient:
         
         # 필수 컬럼이 없는 빈 시트인 경우 처리
         if df.empty and 'Ticker' not in df.columns:
-            # 컬럼 정의 (빈 프레임)
-            columns = [
-                'Ticker', 'Last_Updated',
-                'Q1_Revenue', 'Q2_Revenue', 'Q3_Revenue', 'Q4_Revenue',
-                'Q1_EPS', 'Q2_EPS', 'Q3_EPS', 'Q4_EPS',
-                'Revenue_Growth', 'EPS_Growth', 'Error_Log'
-            ]
+            # 컬럼 정의 (빈 프레임) - 여기서는 최소한의 고정 컬럼만 반환
+            columns = ['Ticker', 'Last_Updated', 'Error_Log']
             return pd.DataFrame(columns=columns)
             
         return df
 
     def update_master_data(self, new_data_list, gid=1101703314):
         """
-        Master Data 시트를 업데이트합니다.
-        기존 데이터 보존 정책을 준수하며, 새로운 데이터로 덮어쓰거나 추가합니다.
-        
-        new_data_list: 업데이트할 딕셔너리 리스트 (키는 컬럼명과 일치해야 함)
+        Master Data 시트를 업데이트합니다. (동적 컬럼 방식)
         """
         worksheet = self.get_worksheet_by_id(gid)
         
-        # 현재 데이터 로드
+        # 1. 기존 데이터 로드
         existing_records = worksheet.get_all_records()
-        
-        # DataFrame으로 변환하여 병합 (Ticker 기준)
         if existing_records:
             df_old = pd.DataFrame(existing_records)
-            # Ticker를 인덱스로 설정
-            df_old.set_index('Ticker', inplace=True)
+            # Ticker 컬럼이 있는지 확인
+            if 'Ticker' in df_old.columns:
+                df_old.set_index('Ticker', inplace=True)
+            else:
+                 # 비정상 상태면 초기화
+                 df_old = pd.DataFrame()
         else:
             df_old = pd.DataFrame()
 
+        # 2. 새로운 데이터 준비
         df_new = pd.DataFrame(new_data_list)
         if df_new.empty:
             return
-
         df_new.set_index('Ticker', inplace=True)
+
+        # 3. 컬럼 통합 (동적 컬럼)
+        # 고정 컬럼
+        fixed_cols = ['Last_Updated', 'Error_Log']
         
-        # combine_first를 사용하여 업데이트 (df_new가 우선, 없으면 df_old 유지)
-        # 하지만 우리는 덮어쓰기를 원하므로 update나 직접 병합 로직 사용
-        # df_new에 있는 애들은 df_new 값으로, 나머지는 df_old 값 유지
+        # 동적 컬럼 (Rev_, EPS_, YoY_ 로 시작하는 것들) 추출
+        # df_old와 df_new의 모든 컬럼을 합침
+        all_cols = set()
+        if not df_old.empty:
+            all_cols.update(df_old.columns)
+        all_cols.update(df_new.columns)
         
+        # 날짜 컬럼만 필터링 및 정렬
+        date_cols = [c for c in all_cols if c not in fixed_cols and c != 'Ticker']
+        
+        # 정렬 로직: 날짜 부분(YYYY-MM-DD)을 추출해서 내림차순(최신이 왼쪽) 정렬
+        # 예: Rev_2025-12-31 -> 2025-12-31
+        def sort_key(col_name):
+            # 접두사 분리 (Rev_, EPS_, YoY_Rev_, YoY_EPS_)
+            # 단순히 뒤에서 10자리(YYYY-MM-DD) 추출
+            if len(col_name) >= 10:
+                date_part = col_name[-10:]
+                prefix = col_name[:-10]
+                # 정렬 우선순위: 날짜(내림차순) -> 항목(Revenue, EPS, YoY...)
+                return (date_part, prefix)
+            return ("", col_name)
+
+        # 복합 정렬: 날짜 내림차순
+        date_cols.sort(key=lambda x: sort_key(x), reverse=True)
+
+        # 최종 컬럼 순서: Ticker(인덱스) + Fixed + Dynamic(Sorted)
+        # Last_Updated는 맨 앞에, Error_Log는 맨 뒤에
+        final_column_order = ['Last_Updated'] + date_cols + ['Error_Log']
+        
+        # 4. 데이터 병합
         if df_old.empty:
             final_df = df_new
         else:
-            # df_new의 컬럼들이 df_old에 없을 수도 있음 (새로운 컬럼이 추가된 경우?)
-            # 여기서는 스키마가 고정되어 있다고 가정
+            # 먼저 인덱스 합치기
+            all_index = df_old.index.union(df_new.index)
+            final_df = pd.DataFrame(index=all_index)
             
-            # update는 NaN이 아닌 값만 덮어씀. 우리는 일부러 비우는 경우는 없으므로 사용 가능
-            # 하지만 Ticker가 df_old에 없는 경우 추가되어야 함.
-            
-            # 1. df_old 업데이트
-            df_old.update(df_new)
-            
-            # 2. df_old에 없는 새로운 티커 추가
-            new_tickers = df_new.index.difference(df_old.index)
-            if not new_tickers.empty:
-                df_to_add = df_new.loc[new_tickers]
-                final_df = pd.concat([df_old, df_to_add])
-            else:
-                final_df = df_old
+            # 각 컬럼별로 처리
+            for col in final_column_order:
+                old_series = df_old[col] if col in df_old.columns else pd.Series(index=all_index)
+                new_series = df_new[col] if col in df_new.columns else pd.Series(index=all_index)
+                
+                # 병합 로직: Old 값 우선, 단 Old가 0/NaN/Empty면 New 값 사용
+                merged = old_series.copy()
+                
+                # reindex
+                merged = merged.reindex(all_index)
+                new_val = new_series.reindex(all_index)
+                
+                # 마스크 생성: (isna) | (== 0) | (== '')
+                # 숫자 변환 시도 (문자열 빈칸 처리 위해)
+                merged_numeric = pd.to_numeric(merged, errors='coerce').fillna(0)
+                
+                # Last_Updated는 무조건 New가 있으면 New로
+                if col == 'Last_Updated':
+                     final_df[col] = new_val.combine_first(merged)
+                else:
+                    # 일반 데이터: 0인 곳만 update
+                    update_mask = (merged_numeric == 0)
+                    # where(cond, other): cond가 True면 유지, False면 other 사용
+                    # 우리는 mask가 True(0임)일 때 new_val을 쓰고 싶음 -> cond는 ~mask
+                    final_df[col] = merged.where(~update_mask, new_val)
 
-        # 인덱스 리셋 및 Ticker 컬럼 복구
-        final_df.reset_index(inplace=True)
+        # 5. 마무리 및 저장
+        final_df.fillna('', inplace=True) # NaN -> 빈 문자열 (0대신 깔끔하게)
+        final_df.reset_index(inplace=True) # Ticker 복구
         
-        # NaN 처리 (빈 문자열 등)
-        final_df.fillna('', inplace=True)
-        
-        # Google Sheets에 다시 쓰기
-        # 전체를 다시 쓰는 방식은 데이터가 많아지면 비효율적일 수 있으나,
-        # 티커 수가 수천개 수준이면 괜찮음. 하루 200개 업데이트면 전체 로우 수는 몇천개 정도 예상.
-        # 시트를 클리어하고 다시 씀. (컬럼 순서 유지 중요)
-        
-        columns = [
-            'Ticker', 'Last_Updated',
-            # Revenue Q1~Q8
-            'Q1_Revenue', 'Q2_Revenue', 'Q3_Revenue', 'Q4_Revenue',
-            'Q5_Revenue', 'Q6_Revenue', 'Q7_Revenue', 'Q8_Revenue',
-            # EPS Q1~Q8
-            'Q1_EPS', 'Q2_EPS', 'Q3_EPS', 'Q4_EPS',
-            'Q5_EPS', 'Q6_EPS', 'Q7_EPS', 'Q8_EPS',
-            # YoY Growth (Q1~Q4)
-            'Q1_Rev_YoY', 'Q2_Rev_YoY', 'Q3_Rev_YoY', 'Q4_Rev_YoY',
-            'Q1_EPS_YoY', 'Q2_EPS_YoY', 'Q3_EPS_YoY', 'Q4_EPS_YoY',
-            'Error_Log'
-        ]
-        
-        # 필요한 컬럼만 선택 및 순서 보장 (없는 컬럼은 추가)
-        for col in columns:
+        # 컬럼 순서 강제 적용 (없는 컬럼은 빈 값으로 추가)
+        for col in final_column_order:
             if col not in final_df.columns:
                 final_df[col] = ''
+                
+        # Ticker + final_column_order
+        final_output_cols = ['Ticker'] + final_column_order
+        final_df = final_df[final_output_cols]
         
-        final_df = final_df[columns]
-        
-        # update operation
-        # clear() 후 update하면 순간적으로 데이터가 사라지는 리스크가 있음.
-        # 안전하게 하려면:
-        # 1. 헤더 제외하고 데이터만 업데이트 (범위 지정)
-        # 2. 행 개수가 늘어났으면 추가
+        # 값 리스트 변환 (NaN 방지)
+        final_df = final_df.fillna('')
         
         data_to_write = [final_df.columns.tolist()] + final_df.values.tolist()
+        
         worksheet.clear()
         worksheet.update(data_to_write)
