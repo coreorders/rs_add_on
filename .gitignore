@@ -1,0 +1,23 @@
+# Sensitive Credentials (NEVER commit these)
+.env
+credentials.json
+*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# IDE settings
+.vscode/
+.idea/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
