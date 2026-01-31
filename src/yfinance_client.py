@@ -34,16 +34,22 @@ class YFinanceClient:
                 # 날짜 포맷 (YYYY-MM-DD)
                 date_str = date_col.strftime('%Y-%m-%d')
                 
-                # Revenue
-                try:
-                    rev = qf.loc['Total Revenue', date_col]
-                    if pd.isna(rev): rev = 0
-                except KeyError:
+                # Revenue Logic (Financial Sector Fallback)
+                # 대부분 기업: Total Revenue
+                # 은행/금융: Operating Revenue 또는 Interest Income 등
+                rev = 0
+                revenue_keys = ['Total Revenue', 'Operating Revenue', 'Total Operating Income', 'Interest Income']
+                
+                for key in revenue_keys:
                     try:
-                        rev = qf.loc['Operating Revenue', date_col]
-                        if pd.isna(rev): rev = 0
+                        val = qf.loc[key, date_col]
+                        if not pd.isna(val) and val != 0:
+                            rev = val
+                            break
                     except KeyError:
-                        rev = 0
+                        continue
+                
+                if pd.isna(rev): rev = 0
                 
                 # EPS
                 try:
